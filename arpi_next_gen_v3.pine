@@ -1,0 +1,152 @@
+//@version=5
+indicator("ARPI Next-Gen v3 - Asymmetric Reversal Engine", overlay=false)
+
+// ==================== 
+// 3個全新公式 (專利級組合邏輯)
+// ====================
+// 公式 1: 非對稱回歸加速度 (Asymmetric Mean Reversion Acceleration)
+// 公式 2: 混沌理論流動性真空 (Chaos Theory Liquidity Vacuum)
+// 公式 3: 波動率躍跳連接器 (Volatility Jump Connector)
+
+// ==================== 參數
+group_amra  = "Formula 1: AMRA"
+group_ctlv  = "Formula 2: CTLV"
+group_vjc   = "Formula 3: VJC"
+group_dev   = "Development"
+
+// === 公式 1: 非對稱回歸加速度 (AMRA) ===
+amra_fast_period    = input.int(7,   "AMRA Fast Period",       group = group_amra, minval = 3)
+amra_slow_period    = input.int(21,  "AMRA Slow Period",       group = group_amra, minval = 5)
+amra_asym_factor    = input.float(1.3, "AMRA Asymmetry Factor", group = group_amra, minval = 1.0, maxval = 2.0)
+amra_threshold      = input.float(0.5, "AMRA Trigger Threshold %", group = group_amra, minval = 0.1, maxval = 2.0)
+
+// === 公式 2: 混沌理論流動性真空 (CTLV) ===
+ctlv_entropy_window = input.int(13, "CTLV Entropy Window",      group = group_ctlv, minval = 5)
+ctlv_gap_threshold  = input.float(0.3, "CTLV Gap Threshold %",  group = group_ctlv, minval = 0.1, maxval = 1.0)
+ctlv_sync_length    = input.int(5, "CTLV Sync Detection",       group = group_ctlv, minval = 3)
+
+// === 公式 3: 波動率躍跳連接器 (VJC) ===
+vjc_vol_window      = input.int(20, "VJC Volatility Window",     group = group_vjc, minval = 10)
+vjc_jump_sensitivity = input.float(1.8, "VJC Jump Sensitivity", group = group_vjc, minval = 1.0, maxval = 3.0)
+vjc_momentum_length = input.int(9,   "VJC Momentum Period",      group = group_vjc, minval = 5)
+
+// ==================== 公式 1: AMRA (非對稱回歸加速度)
+// 邏輯: BTC 下跌反彈快，上漲縮小慢。檢測加速度變化。
+
+fast_ma = ta.sma(close, amra_fast_period)
+slow_ma = ta.sma(close, amra_slow_period)
+
+// 計算價格偏離 MA 的百分比
+price_dev_fast = ((close - fast_ma) / fast_ma) * 100
+price_dev_slow = ((close - slow_ma) / slow_ma) * 100
+
+// 非對稱係數：下跌時加強信號，上漲時減弱
+asym_multiplier = close < fast_ma ? amra_asym_factor : 1.0 / amra_asym_factor
+
+// 加速度計算 (2階導數: 動量的變化)
+accel = ta.roc(price_dev_fast, 2)
+accel_filtered = ta.sma(accel, 3)
+
+// AMRA 信號：加速度反轉 + 非對稱放大
+amra_bull = accel_filtered < -amra_threshold and close < fast_ma and price_dev_fast < price_dev_slow * asym_multiplier
+amra_bear = accel_filtered > amra_threshold and close > fast_ma and price_dev_fast > price_dev_slow * asym_multiplier
+
+amra_strength_bull = amra_bull ? 40 : 0
+amra_strength_bear = amra_bear ? 40 : 0
+
+// ==================== 公式 2: CTLV (混沌理論流動性真空)
+// 邏輯: 檢測「熵值突降」→ 市場秩序復原 → 流動性補償
+
+// Shannon Entropy 簡化版：基於價格分布
+price_range = ta.highest(high, ctlv_entropy_window) - ta.lowest(low, ctlv_entropy_window)
+entropy_raw = 0.0
+for i = 0 to ctlv_entropy_window - 1
+    if price_range != 0
+        normalized = (close[i] - ta.lowest(low, ctlv_entropy_window)) / price_range
+        entropy_raw += normalized > 0 and normalized < 1 ? -normalized * math.log(normalized + 0.0001) : 0
+
+entropy_smooth = ta.sma(entropy_raw, 3)
+entropy_prev = entropy_smooth[1]
+
+// 熵值反轉檢測 (真空形成)
+entropy_drop = entropy_smooth < entropy_prev * 0.85  // 熵值驟降 15% 以上
+
+// 同步流入檢測：多根 K 同方向
+up_bars = 0, dn_bars = 0
+for i = 0 to ctlv_sync_length - 1
+    if close[i] > open[i]
+        up_bars += 1
+    else
+        dn_bars += 1
+
+sync_condition = (up_bars == ctlv_sync_length or dn_bars == ctlv_sync_length) and entropy_drop
+
+// 流動性真空補償 (反向爆發)
+ctlv_bull = sync_condition and close < ta.sma(close, ctlv_entropy_window)
+ctlv_bear = sync_condition and close > ta.sma(close, ctlv_entropy_window)
+
+ctlv_strength_bull = ctlv_bull ? 45 : 0
+ctlv_strength_bear = ctlv_bear ? 45 : 0
+
+// ==================== 公式 3: VJC (波動率躍跳連接器)
+// 邏輯: 波動率缺口 + 動量連接 = 反轉點
+
+atr_val = ta.atr(vjc_vol_window)
+atr_ma = ta.sma(atr_val, vjc_vol_window)
+
+// 波動率突跳檢測
+vol_jump = atr_val > atr_ma * (1 + vjc_jump_sensitivity / 100)
+vol_squeeze = atr_val < atr_ma * (1 - vjc_jump_sensitivity / 100)
+
+// 動量連接器 (ROC 轉折)
+momentum = ta.roc(close, vjc_momentum_length)
+momentum_ma = ta.sma(momentum, 3)
+
+// VJC 反轉條件：波動力 + 動量反轉
+vjc_bull = vol_squeeze and momentum < -2 and ta.crossover(momentum, momentum_ma)
+vjc_bear = vol_jump and momentum > 2 and ta.crossunder(momentum, momentum_ma)
+
+vjc_strength_bull = vjc_bull ? 50 : 0
+vjc_strength_bear = vjc_bear ? 50 : 0
+
+// ==================== 訊號合成 (三公式權重合並)
+// 多看：三個公式都看好 = 100 分，兩個 = 70 分，一個 = 35 分
+bull_count = (amra_strength_bull > 0 ? 1 : 0) + (ctlv_strength_bull > 0 ? 1 : 0) + (vjc_strength_bull > 0 ? 1 : 0)
+bear_count = (amra_strength_bear > 0 ? 1 : 0) + (ctlv_strength_bear > 0 ? 1 : 0) + (vjc_strength_bear > 0 ? 1 : 0)
+
+final_bull_strength = bull_count == 3 ? 100 : bull_count == 2 ? 70 : bull_count == 1 ? 35 : 0
+final_bear_strength = bear_count == 3 ? 100 : bear_count == 2 ? 70 : bear_count == 1 ? 35 : 0
+
+// ==================== 冷卻機制 (避免連續信號)
+var int last_bull_bar = na
+var int last_bear_bar = na
+cooldown = 2
+
+new_bull = final_bull_strength > 0 and (na(last_bull_bar) or bar_index - last_bull_bar > cooldown)
+new_bear = final_bear_strength > 0 and (na(last_bear_bar) or bar_index - last_bear_bar > cooldown)
+
+if new_bull
+    last_bull_bar := bar_index
+if new_bear
+    last_bear_bar := bar_index
+
+signal_bull = new_bull ? final_bull_strength : 0
+signal_bear = new_bear ? final_bear_strength : 0
+
+// ==================== 視覺化
+plot(signal_bull, title = "ARPI v3 Bull Strength", color = color.new(color.lime, 0), style = plot.style_columns, linewidth = 2)
+plot(-signal_bear, title = "ARPI v3 Bear Strength", color = color.new(color.red, 0), style = plot.style_columns, linewidth = 2)
+
+// 背景標記
+bgcolor(signal_bull == 100 ? color.new(color.green, 80) : signal_bull == 70 ? color.new(color.green, 85) : na, title = "Strong Bull BG")
+bgcolor(signal_bear == 100 ? color.new(color.red, 80) : signal_bear == 70 ? color.new(color.red, 85) : na, title = "Strong Bear BG")
+
+// 細節線
+plot(amra_strength_bull, title = "AMRA Bull Detail", color = color.new(color.lime, 40), linewidth = 1)
+plot(-amra_strength_bear, title = "AMRA Bear Detail", color = color.new(color.red, 40), linewidth = 1)
+
+// ==================== 警報
+alertcondition(signal_bull == 100, "ARPI v3 STRONG BULL", "Perfect convergence - All 3 formulas bullish!")
+alertcondition(signal_bear == 100, "ARPI v3 STRONG BEAR", "Perfect convergence - All 3 formulas bearish!")
+alertcondition(signal_bull == 70, "ARPI v3 MID BULL", "2 out of 3 formulas bullish")
+alertcondition(signal_bear == 70, "ARPI v3 MID BEAR", "2 out of 3 formulas bearish")
