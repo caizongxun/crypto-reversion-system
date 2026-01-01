@@ -357,6 +357,7 @@ class ParameterOptimizer:
 def load_data_from_hf(symbol_file):
     """
     從 HuggingFace 遠端讀取數據
+    修復: 正確處理 7 列 parquet 文件
     """
     print(f"正在從 HuggingFace 下載: {symbol_file}")
     path = hf_hub_download(
@@ -365,10 +366,36 @@ def load_data_from_hf(symbol_file):
         repo_type="dataset"
     )
     df = pd.read_parquet(path)
-    df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-    df['time'] = pd.to_datetime(df['time'])
-    df = df.sort_values('time').reset_index(drop=True)
-    print(f"數據加載完成: {len(df)} 筆記錄")
+    
+    # 正確處理列名
+    print(f"原始列: {list(df.columns)}")
+    
+    # 尝試探測並保留所有形式的 OHLCV 列
+    required_cols = ['open', 'high', 'low', 'close', 'volume']
+    
+    # 如果列名是下除的子集、就保留并轉換型別
+    if all(col in df.columns for col in required_cols):
+        df = df[required_cols].astype(float)
+    else:
+        # 假設正常順序: timestamp, open, high, low, close, volume, ...
+        # 調整列名並取例
+        if len(df.columns) >= 6:
+            df.columns = ['timestamp'] + list(df.columns[1:7])
+            df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            # 轉換一些型別为 float
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df = df.dropna()
+        else:
+            raise ValueError(f"不源混的 parquet 模式: {df.columns}")
+    
+    # 排序
+    if 'timestamp' in df.columns:
+        df = df.sort_values('timestamp')
+        df = df.drop('timestamp', axis=1)
+    
+    df = df.reset_index(drop=True)
+    print(f"數據加載完成: {len(df)} 筆記錄, 列: {list(df.columns)}")
     return df
 
 
@@ -382,14 +409,14 @@ def main():
     
     # 只使用最近 2000 根蠟燭 (加快優化)
     df = df.tail(2000).reset_index(drop=True)
-    print(f"\n使用數據範圍: {df['time'].iloc[0]} 到 {df['time'].iloc[-1]}")
+    print(f"\n使用數據: {len(df)} 根 OHLCV K線")
     
     # 初始化優化器
     print("\n初始化 Optuna 優化...")
     optimizer = ParameterOptimizer(df)
     
     # 執行優化
-    print(f"開始 Bayesian 搜索 ({OPTUNA_TRIALS} 次試驗)...")
+    print(f"開始 Bayesian 搜索 ({OPTUNA_TRIALS} 次試驗)...\n")
     best_params, best_score = optimizer.optimize(n_trials=OPTUNA_TRIALS)
     
     # 輸出結果
