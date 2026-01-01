@@ -23,19 +23,17 @@ line_color = input(color.new(color.blue, 50), title="連線顏色")
 
 var float last_point_val = na
 var int last_point_idx = na
-var string last_point_type = na  // "peak" 或 "valley"
+var string last_point_type = na
 var array<int> peak_indices = array.new<int>()
 var array<int> valley_indices = array.new<int>()
 var array<float> peak_prices = array.new<float>()
 var array<float> valley_prices = array.new<float>()
 
-// 初始化
 if barindex == 0
     last_point_val := close
     last_point_idx := 0
     last_point_type := na
 
-// 計算當前價格變化百分比
 current_close = close
 
 if not na(last_point_val)
@@ -43,20 +41,15 @@ if not na(last_point_val)
     
     if change_pct > percentage
         if current_close > last_point_val
-            // 上漲
             if last_point_type == "valley"
-                // 從低位上漲，記錄之前的底點
                 array.push(valley_indices, last_point_idx)
                 array.push(valley_prices, last_point_val)
             
             last_point_val := current_close
             last_point_idx := bar_index
             last_point_type := "peak"
-        
         else
-            // 下跌
             if last_point_type == "peak"
-                // 從高位下跌，記錄之前的頂點
                 array.push(peak_indices, last_point_idx)
                 array.push(peak_prices, last_point_val)
             
@@ -72,18 +65,8 @@ if show_peaks and array.size(peak_indices) > 0
         peak_idx = array.get(peak_indices, i)
         peak_price = array.get(peak_prices, i)
         
-        // 只顯示最近的 50 個頂點（避免圖表過擁擠）
         if bar_index - peak_idx < 500
-            // 繪製 ▼ 符號
-            label.new(
-                x=peak_idx,
-                y=peak_price,
-                text="▼",
-                style=label.style_label_down,
-                color=peak_color,
-                textcolor=color.white,
-                size=size.large
-            )
+            label.new(x=peak_idx, y=peak_price, text="▼", style=label.style_label_down, color=peak_color, textcolor=color.white, size=size.large)
 
 // ============================================
 // 繪製底點（綠色▲）
@@ -93,18 +76,8 @@ if show_valleys and array.size(valley_indices) > 0
         valley_idx = array.get(valley_indices, i)
         valley_price = array.get(valley_prices, i)
         
-        // 只顯示最近的 50 個底點
         if bar_index - valley_idx < 500
-            // 繪製 ▲ 符號
-            label.new(
-                x=valley_idx,
-                y=valley_price,
-                text="▲",
-                style=label.style_label_up,
-                color=valley_color,
-                textcolor=color.white,
-                size=size.large
-            )
+            label.new(x=valley_idx, y=valley_price, text="▲", style=label.style_label_up, color=valley_color, textcolor=color.white, size=size.large)
 
 // ============================================
 // 繪製連接線（可選）
@@ -117,17 +90,7 @@ if show_lines and array.size(peak_indices) > 1
         peak2_price = array.get(peak_prices, i + 1)
         
         if bar_index - peak2_idx < 500
-            line.new(
-                x1=peak1_idx,
-                y1=peak1_price,
-                x2=peak2_idx,
-                y2=peak2_price,
-                closed=false,
-                xloc=xloc.bar_index,
-                color=line_color,
-                width=1,
-                style=line.style_dashed
-            )
+            line.new(x1=peak1_idx, y1=peak1_price, x2=peak2_idx, y2=peak2_price, closed=false, xloc=xloc.bar_index, color=line_color, width=1, style=line.style_dashed)
 
 if show_lines and array.size(valley_indices) > 1
     for i = 0 to array.size(valley_indices) - 2
@@ -137,17 +100,7 @@ if show_lines and array.size(valley_indices) > 1
         valley2_price = array.get(valley_prices, i + 1)
         
         if bar_index - valley2_idx < 500
-            line.new(
-                x1=valley1_idx,
-                y1=valley1_price,
-                x2=valley2_idx,
-                y2=valley2_price,
-                closed=false,
-                xloc=xloc.bar_index,
-                color=line_color,
-                width=1,
-                style=line.style_dashed
-            )
+            line.new(x1=valley1_idx, y1=valley1_price, x2=valley2_idx, y2=valley2_price, closed=false, xloc=xloc.bar_index, color=line_color, width=1, style=line.style_dashed)
 
 // ============================================
 // 統計資訊（在圖表上顯示）
@@ -155,7 +108,6 @@ if show_lines and array.size(valley_indices) > 1
 peak_count = array.size(peak_indices)
 valley_count = array.size(valley_indices)
 
-// 計算平均波幅
 avg_amplitude = 0.0
 if peak_count > 0 and valley_count > 0
     total_amplitude = 0.0
@@ -168,22 +120,10 @@ if peak_count > 0 and valley_count > 0
     
     avg_amplitude := total_amplitude / math.min(peak_count, valley_count)
 
-// 在右上角顯示統計信息
 stats_text = "頂點: " + str.tostring(peak_count) + "\n底點: " + str.tostring(valley_count) + "\n平均波幅: " + str.tostring(math.round(avg_amplitude, 2)) + "%"
 
 if show_labels
-    label.new(
-        x=bar_index,
-        y=high,
-        text=stats_text,
-        style=label.style_label_left,
-        color=color.new(color.gray, 50),
-        textcolor=color.white,
-        size=size.small
-    )
+    label.new(x=bar_index, y=high, text=stats_text, style=label.style_label_left, color=color.new(color.gray, 50), textcolor=color.white, size=size.small)
 
-// ============================================
-// 提示信息
-// ============================================
 if bar_index == 0
     alert("Peak Valley Detector 已加載\n波幅設定: " + str.tostring(percentage) + "%")
