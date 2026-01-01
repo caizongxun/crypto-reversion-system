@@ -1,0 +1,115 @@
+//@version=5
+indicator("Advanced Reversal Probability Indicator (ARPI) v2", overlay=false)
+
+// ==================== 参数设定 ====================
+group_rsi   = "RSI Settings"
+group_macd  = "MACD Settings"
+group_bb    = "Bollinger Bands"
+group_vol   = "Volatility Filter"
+group_div   = "Divergence Settings"
+
+rsi_length  = input.int(14, "RSI Period", group = group_rsi)
+rsi_ob      = input.float(70.0, "RSI Overbought Level", group = group_rsi)
+rsi_os      = input.float(30.0, "RSI Oversold Level", group = group_rsi)
+
+macd_fast   = input.int(12, "MACD Fast Length", group = group_macd)
+macd_slow   = input.int(26, "MACD Slow Length", group = group_macd)
+macd_signal = input.int(9,  "MACD Signal Length", group = group_macd)
+
+bb_length   = input.int(20,  "BB Period",    group = group_bb)
+bb_std      = input.float(2, "BB StdDev",    group = group_bb)
+
+atr_length        = input.int(14,  "ATR Period",                 group = group_vol)
+min_vol_threshold = input.float(0.5, "Min ATR% for signal",      group = group_vol)
+use_vol_filter    = input.bool(true, "Enable Volatility Filter", group = group_vol)
+
+div_lookback      = input.int(5, "Divergence Lookback", group = group_div)
+
+// ==================== 指标計算 ====================
+rsi = ta.rsi(close, rsi_length)
+
+[macd_line, macd_signal_line, macd_hist] = ta.macd(close, macd_fast, macd_slow, macd_signal)
+
+bb_mid   = ta.sma(close, bb_length)
+bb_dev   = ta.stdev(close, bb_length)
+bb_upper = bb_mid + bb_std * bb_dev
+bb_lower = bb_mid - bb_std * bb_dev
+
+atr_val     = ta.atr(atr_length)
+atr_percent = atr_val / close * 100.0
+
+// ==================== 發散檢測 ====================
+// 為了增加觸發機會，改成pivot + 趨勢比對，而不是直接用最低/最高
+pl = ta.lowest(close, div_lookback)
+ph = ta.highest(close, div_lookback)
+rsiL = ta.lowest(rsi, div_lookback)
+rsiH = ta.highest(rsi, div_lookback)
+macdL = ta.lowest(macd_line, div_lookback)
+macdH = ta.highest(macd_line, div_lookback)
+
+// 看漲發散：價格創新低但 RSI / MACD 沒有同步創新低
+bull_rsi_div = close < pl and rsi > rsiL
+bull_macd_div = close < pl and macd_line > macdL
+
+// 看跌發散：價格創新高但 RSI / MACD 沒有同步創新高
+bear_rsi_div = close > ph and rsi < rsiH
+bear_macd_div = close > ph and macd_line < macdH
+
+// ==================== 波動篩選 ====================
+// 放寬為只排除極低波動，不再限制上限，避免信號太少
+sufficient_vol = not use_vol_filter or atr_percent > min_vol_threshold
+
+// ==================== 反轉條件 ====================
+// 嚴格版超買超賣條件
+rsi_oversold  = rsi < rsi_os
+rsi_overbought = rsi > rsi_ob
+
+// 價格在 BB 極端區域
+price_below_bb = close < bb_lower
+price_above_bb = close > bb_upper
+
+// 增加弱信號：接近 BB 邊緣也算一種極端，但強度較低
+near_lower_bb = close < (bb_mid - (bb_std * bb_dev * 0.6)) and not price_below_bb
+near_upper_bb = close > (bb_mid + (bb_std * bb_dev * 0.6)) and not price_above_bb
+
+// 看漲組合
+bull_strong_cond = (bull_rsi_div or bull_macd_div or price_below_bb) and rsi_oversold
+bull_mid_cond    = (near_lower_bb or bull_rsi_div or bull_macd_div) and rsi_oversold
+bull_weak_cond   = rsi_oversold
+
+// 看跌組合
+bear_strong_cond = (bear_rsi_div or bear_macd_div or price_above_bb) and rsi_overbought
+bear_mid_cond    = (near_upper_bb or bear_rsi_div or bear_macd_div) and rsi_overbought
+bear_weak_cond   = rsi_overbought
+
+// ==================== 信號強度計算 ====================
+// 強度分級：強 / 中 / 弱 → 100 / 66 / 33
+bull_strength =
+     bull_strong_cond ? 100 :
+     bull_mid_cond    ? 66  :
+     bull_weak_cond   ? 33  : 0
+
+bear_strength =
+     bear_strong_cond ? 100 :
+     bear_mid_cond    ? 66  :
+     bear_weak_cond   ? 33  : 0
+
+// 應用波動條件
+final_bull_strength = sufficient_vol ? bull_strength : 0
+final_bear_strength = sufficient_vol ? bear_strength : 0
+
+// ==================== 視覺化 ====================
+plot(final_bull_strength, title="Bullish Strength", color=color.new(color.lime, 0), style=plot.style_columns)
+plot(-final_bear_strength, title="Bearish Strength", color=color.new(color.red, 0), style=plot.style_columns)
+
+// 顯示 ATR% 線，方便手動微調門檻
+plot(atr_percent, title="ATR Volatility %", color=color.new(color.blue, 0), linewidth=2)
+hline(min_vol_threshold, "Min ATR% Filter", color=color.gray, linestyle=hline.style_dashed)
+
+// 背景著色只對強信號反應，避免圖表過度花
+bgcolor(bull_strong_cond and sufficient_vol ? color.new(color.green, 85) : na, title="Bullish BG")
+bgcolor(bear_strong_cond and sufficient_vol ? color.new(color.red, 85) : na, title="Bearish BG")
+
+// ==================== 警報 ====================
+alertcondition(bull_strong_cond and sufficient_vol, "Strong Bullish Reversal", "Strong Bullish reversal (ARPI v2)")
+alertcondition(bear_strong_cond and sufficient_vol, "Strong Bearish Reversal", "Strong Bearish reversal (ARPI v2)")
