@@ -1,0 +1,107 @@
+//@version=5
+indicator("Advanced Reversal Probability Indicator (ARPI)", overlay=false)
+
+// ==================== 用户参数配置 ====================
+rsi_length = input(14, title="RSI Period", group="RSI Settings")
+rsi_ob = input(70, title="RSI Overbought Level", group="RSI Settings")
+rsi_os = input(30, title="RSI Oversold Level", group="RSI Settings")
+
+macd_fast = input(12, title="MACD Fast Length", group="MACD Settings")
+macd_slow = input(26, title="MACD Slow Length", group="MACD Settings")
+macd_signal = input(9, title="MACD Signal Length", group="MACD Settings")
+
+bb_length = input(20, title="Bollinger Bands Period", group="Bollinger Bands")
+bb_std = input(2.0, title="Bollinger Bands StdDev", group="Bollinger Bands")
+
+atr_length = input(14, title="ATR Period", group="Volatility Filter")
+vol_filter_threshold = input(2.0, title="ATR Multiplier for Signal Filter", group="Volatility Filter")
+min_vol_threshold = input(1.0, title="Minimum ATR for Signal (Percentage)", group="Volatility Filter")
+
+divergence_lookback = input(5, title="Divergence Lookback Period", group="Divergence Settings")
+
+// ==================== 指标計算 ====================
+// RSI計算
+rsi = ta.rsi(close, rsi_length)
+
+// MACD計算
+[macd_line, macd_signal_line, macd_hist] = ta.macd(close, macd_fast, macd_slow, macd_signal)
+
+// Bollinger Bands計算
+bb_middle = ta.sma(close, bb_length)
+bb_dev = ta.stdev(close, bb_length)
+bb_upper = bb_middle + (bb_std * bb_dev)
+bb_lower = bb_middle - (bb_std * bb_dev)
+
+// ATR (Average True Range) - 波動指標
+atr_value = ta.atr(atr_length)
+atr_percent = (atr_value / close) * 100
+
+// ==================== 發散檢測引擎 ====================
+// RSI發散檢測
+rsi_higher_low = rsi > ta.lowest(rsi, divergence_lookback) and close < ta.lowest(close, divergence_lookback)
+rsi_lower_high = rsi < ta.highest(rsi, divergence_lookback) and close > ta.highest(close, divergence_lookback)
+
+// MACD發散檢測
+macd_higher_low = macd_line > ta.lowest(macd_line, divergence_lookback) and close < ta.lowest(close, divergence_lookback)
+macd_lower_high = macd_line < ta.highest(macd_line, divergence_lookback) and close > ta.highest(close, divergence_lookback)
+
+// ==================== 波動篩選條件 ====================
+// 只在波動足夠大時發出信號
+sufficient_volatility = atr_percent > min_vol_threshold
+excessive_volatility = atr_percent < vol_filter_threshold
+
+// ==================== 核心反轉信號 ====================
+// 牛市反轉信號 (看漲)
+bullish_rsi_divergence = rsi_higher_low and rsi < rsi_os
+bullish_macd_divergence = macd_higher_low and macd_hist < 0
+bullish_price_below_bb = close < bb_lower
+bullish_rsi_oversold = rsi < rsi_os
+
+bullish_signal = (bullish_rsi_divergence or bullish_macd_divergence or bullish_price_below_bb) and bullish_rsi_oversold
+
+// 熊市反轉信號 (看跌)
+bearish_rsi_divergence = rsi_lower_high and rsi > rsi_ob
+bearish_macd_divergence = macd_lower_high and macd_hist > 0
+bearish_price_above_bb = close > bb_upper
+bearish_rsi_overbought = rsi > rsi_ob
+
+bearish_signal = (bearish_rsi_divergence or bearish_macd_divergence or bearish_price_above_bb) and bearish_rsi_overbought
+
+// ==================== 信號可信度計算 ====================
+// 多因素確認計數
+bullish_confirmations = 0
+bullish_confirmations += bullish_rsi_divergence ? 1 : 0
+bullish_confirmations += bullish_macd_divergence ? 1 : 0
+bullish_confirmations += bullish_price_below_bb ? 1 : 0
+
+bearish_confirmations = 0
+bearish_confirmations += bearish_rsi_divergence ? 1 : 0
+bearish_confirmations += bearish_macd_divergence ? 1 : 0
+bearish_confirmations += bearish_price_above_bb ? 1 : 0
+
+// 計算信號強度 (0-100)
+signal_strength_bullish = bullish_confirmations > 0 ? (bullish_confirmations / 3) * 100 : 0
+signal_strength_bearish = bearish_confirmations > 0 ? (bearish_confirmations / 3) * 100 : 0
+
+// ==================== 最終信號輸出 ====================
+// 應用波動篩選: 只有在波動合理範圍內才發出信號
+final_bullish_signal = bullish_signal and sufficient_volatility and excessive_volatility
+final_bearish_signal = bearish_signal and sufficient_volatility and excessive_volatility
+
+// ==================== 視覺化 ====================
+// 繪製信號強度直方圖
+plot(signal_strength_bullish, title="Bullish Signal Strength", color=color.new(color.green, 0), style=plot.style_columns)
+plot(-signal_strength_bearish, title="Bearish Signal Strength", color=color.new(color.red, 0), style=plot.style_columns)
+
+// 繪製波動指標參考線
+plot(atr_percent, title="ATR Volatility %", color=color.blue, linewidth=2)
+hline(min_vol_threshold, "Min Volatility Threshold", color=color.gray, linestyle=hline.style_dashed)
+hline(vol_filter_threshold, "Max Volatility Threshold", color=color.gray, linestyle=hline.style_dashed)
+
+// ==================== 警報 ====================
+alertcondition(final_bullish_signal, title="Bullish Reversal Signal", message="Bullish reversal detected with {{close}} on {{time}}")
+alertcondition(final_bearish_signal, title="Bearish Reversal Signal", message="Bearish reversal detected with {{close}} on {{time}}")
+
+// ==================== 背景著色 ====================
+bgcolor(final_bullish_signal ? color.new(color.green, 85) : na, title="Bullish Background")
+bgcolor(final_bearish_signal ? color.new(color.red, 85) : na, title="Bearish Background")
