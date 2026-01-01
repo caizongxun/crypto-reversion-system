@@ -29,7 +29,7 @@ var array<int> valley_indices = array.new<int>()
 var array<float> peak_prices = array.new<float>()
 var array<float> valley_prices = array.new<float>()
 
-if barindex == 0
+if bar_index == 0
     last_point_val := close
     last_point_idx := 0
     last_point_type := na
@@ -90,7 +90,7 @@ if show_lines and array.size(peak_indices) > 1
         peak2_price = array.get(peak_prices, i + 1)
         
         if bar_index - peak2_idx < 500
-            line.new(x1=peak1_idx, y1=peak1_price, x2=peak2_idx, y2=peak2_price, closed=false, xloc=xloc.bar_index, color=line_color, width=1, style=line.style_dashed)
+            line.new(x1=peak1_idx, y1=peak1_price, x2=peak2_idx, y2=peak2_price, xloc=xloc.bar_index, color=line_color, width=1, style=line.style_dashed)
 
 if show_lines and array.size(valley_indices) > 1
     for i = 0 to array.size(valley_indices) - 2
@@ -100,7 +100,7 @@ if show_lines and array.size(valley_indices) > 1
         valley2_price = array.get(valley_prices, i + 1)
         
         if bar_index - valley2_idx < 500
-            line.new(x1=valley1_idx, y1=valley1_price, x2=valley2_idx, y2=valley2_price, closed=false, xloc=xloc.bar_index, color=line_color, width=1, style=line.style_dashed)
+            line.new(x1=valley1_idx, y1=valley1_price, x2=valley2_idx, y2=valley2_price, xloc=xloc.bar_index, color=line_color, width=1, style=line.style_dashed)
 
 // ============================================
 // 統計資訊（在圖表上顯示）
